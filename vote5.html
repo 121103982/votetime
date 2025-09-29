@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>夜间烧水时间段投票 多选</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    .time-slot {
+      display: block;
+      margin: 6px 0;
+      font-size: 1.5em; /* 字体变大 */
+      padding: 4px 8px;
+    }
+    /* 交替背景色：红色、蓝色、灰色 */
+    /* 我们可以用 nth-child 来处理复选框所在 label 的背景 */
+    #slotsContainer label:nth-child(3n+1) {
+      background-color: lightcoral; /* 红色调 */
+    }
+    #slotsContainer label:nth-child(3n+2) {
+      background-color: lightblue; /* 蓝色调 */
+    }
+    #slotsContainer label:nth-child(3n+3) {
+      background-color: lightgray; /* 灰色调 */
+    }
+    /* 保证 label 的背景色覆盖整个标签区域 */
+    #slotsContainer label {
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    #slotsContainer {
+      max-height: 700px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      padding: 10px;
+    }
+    button { margin-top: 12px; padding: 8px 16px; font-size: 16px; }
+    #results { margin-top: 30px; }
+    #resultsList li { margin: 4px 0; }
+     #results > h2 {
+    font-size: 2em;      /* 标题变大 */
+    color: red;          /* 标题为红色 */
+    margin-bottom: 12px;
+  }
+
+  /* 针对结果列表 li 的文字和票数 */
+  #resultsList li {
+    font-size: 1.4em;     /* 调整 li 字体变大 */
+
+  }
+
+  /* 如果你想“票数”部分特别突出，也可以单独加一个 span 来控制 */
+  #resultsList li .vote-count {
+    font-weight: bold;
+     color: red;
+    /* 你可以再调颜色或者大小 */
+  }
+
+  .vote-count {
+  color: red;
+}
+  </style>
+</head>
+<body>
+  <h1>夜间烧水时间段投票 （多选）</h1>
+
+  <div id="slotsContainer">
+    <!-- 时间段复选框选项由 JS 生成 -->
+  </div>
+
+  <button id="voteBtn">提交投票</button>
+
+  <div id="results">
+    <h2 >当前投票结果：</h2>
+    <ul id="resultsList"></ul>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+    import { getDatabase, ref, onValue, runTransaction, set } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyC3QCGhsCQ7yTMziKJ6srtdSWrWjVKj9jA",
+      authDomain: "web6400.firebaseapp.com",
+      databaseURL: "https://web6400-default-rtdb.firebaseio.com",
+      projectId: "web6400",
+      storageBucket: "web6400.firebasestorage.app",
+      messagingSenderId: "43994478239",
+      appId: "1:43994478239:web:65c600060850ee599794aa",
+      measurementId: "G-YHBBMK4S94"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    const votesRef = ref(db, "gasTimeVotes");
+    const votesLogRef = ref(db, "votesLog");
+
+    function generateNightSlots() {
+      const slots = [];
+      function pad(n) { return String(n).padStart(2, '0'); }
+      let currHour = 18, currMin = 0;
+      while (true) {
+        let nextMin = currMin + 30;
+        let nextHour = currHour;
+        if (nextMin >= 60) {
+          nextMin -= 60;
+          nextHour = (currHour + 1) % 24;
+        }
+        const startStr = `${pad(currHour)}:${pad(currMin)}`;
+        const endStr = `${pad(nextHour)}:${pad(nextMin)}`;
+        slots.push(`${startStr}-${endStr}`);
+        if (nextHour === 7 && nextMin === 0) break;
+        currHour = nextHour;
+        currMin = nextMin;
+      }
+      return slots;
+    }
+
+    const timeSlots = generateNightSlots();
+
+    function renderTimeSlots() {
+      const container = document.getElementById("slotsContainer");
+      container.innerHTML = "";
+      timeSlots.forEach(slot => {
+        const label = document.createElement("label");
+        label.className = "time-slot";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.name = "slotCheckbox";
+        cb.value = slot;
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(" " + slot));
+        container.appendChild(label);
+      });
+    }
+
+    renderTimeSlots();
+
+    onValue(votesRef, snapshot => {
+      const data = snapshot.val() || {};
+      renderResults(data);
+    });
+
+    function renderResults(data) {
+      const ul = document.getElementById("resultsList");
+      ul.innerHTML = "";
+      timeSlots.forEach(slot => {
+        const cnt = data[slot] || 0;
+        const li = document.createElement("li");
+         li.innerHTML = `${slot} — <span class="vote-count">${cnt} 票</span>`;
+        ul.appendChild(li);
+      });
+    }
+
+    document.getElementById("voteBtn").addEventListener("click", async () => {
+    // 弹出确认提示
+    const isConfirmed = confirm("您确定要提交投票吗？");
+    if (!isConfirmed) {
+      return; // 如果用户点击“取消”，则不执行后续操作
+    }
+
+    const checkboxes = document.getElementsByName("slotCheckbox");
+    const selected = [];
+    for (const cb of checkboxes) {
+      if (cb.checked) selected.push(cb.value);
+    }
+    if (selected.length === 0) {
+      alert("请至少选择一个时间段进行投票");
+      return;
+    }
+
+    let voteUuid;
+    if (crypto && crypto.randomUUID) {
+      voteUuid = crypto.randomUUID();
+    } else {
+      voteUuid = 'vote-' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
+    }
+    const timestamp = Date.now();
+    const logData = { uuid: voteUuid, selectedSlots: selected, timestamp: timestamp };
+    await set(ref(db, `votesLog/${voteUuid}`), logData);
+
+    const promises = selected.map(slot => {
+      const slotRef = ref(db, `gasBoilNightTimeVotes/${slot}`);
+      return runTransaction(slotRef, current => {
+        return (current || 0) + 1;
+      });
+    });
+    Promise.all(promises)
+      .then(() => {
+        alert("投票成功！");
+        checkboxes.forEach(cb => cb.checked = false);
+      })
+      .catch(err => {
+        console.error("投票提交中出现错误：", err);
+        alert("有些投票未能提交，请稍后再试");
+      });
+  });
+  </script>
+</body>
+</html>
